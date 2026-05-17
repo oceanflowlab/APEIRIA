@@ -64,46 +64,6 @@ DATASET_CLSMAP: Dict[str, Callable[..., Synthetic3DDatasetType]] = {
     "nr3d": Real3DDataset,
 }
 
-# def create_dataset(dataset_type: str, config: MultimodalGRPOConfig, tokenizer: transformers.PreTrainedTokenizer, split="train"):
-#     """Create a dataset of the specified type and split"""
-#     dataset_class = DATASET_CLSMAP[dataset_type]
-
-#     # logger.info(f"Creating {split} dataset of type {dataset_type}")
-    
-#     num_scenes = config.num_scenes
-#     if split == "val":
-#         num_scenes = config.num_scenes // 10  # Smaller validation set
-
-#     # logger.info(f"Here load_from_cache= {config.load_from_cache}")
-    
-#     dataset = dataset_class(
-#         name=dataset_type,
-#         split=split,
-#         shuffle_objects=config.shuffle_objects if split == "train" else False,
-#         num_scenes=num_scenes,
-#         objects_per_scene=config.objects_per_scene,
-#         room_size=config.room_size,
-#         max_objects=config.max_objects,
-#         min_objects_per_class=config.min_objects_per_class,
-#         max_objects_per_class=config.max_objects_per_class,
-#         seed=config.seed if split == "train" else config.seed + 1,
-#         fix_template=config.fix_template,
-#         add_thinking_trace=config.add_thinking_trace,
-#         pre_filter_objects=config.pre_filter_objects,
-#         max_filter_objects=config.max_filter_objects,
-#         use_clip_class_embedding=config.use_clip_class_embedding,
-#         clip_model_name=config.clip_model_name,
-#         load_from_cache=config.load_from_cache,
-#         cuda_device=config.rank,
-#         normalize_proposal_feature=config.normalize_proposal_feature,
-#         no_object_id_input=config.no_object_id_input,
-#         use_2d_proposal_feature=config.use_2d_proposal_feature,
-#         add_plans_first=config.add_plans_first,
-#         tokenizer=tokenizer,
-#     )
-    
-#     return dataset
-
 
 def print_once(string):
     try:
