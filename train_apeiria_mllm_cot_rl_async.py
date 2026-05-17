@@ -62,9 +62,9 @@ import simple_filter_dataset_grpo
 from simple_filter_dataset_grpo import combined_reward, parse_response, calculate_position_similarity, calculate_size_similarity, CombinedReward, pass_at_k
 from qwen_helpers import apply_qwen_template, count_example_tokens, batch_count_tokens
 from train_apeiria_mllm import create_dataset
+from cot_rl_config import MultimodalGRPOConfig
 
 from train_apeiria_mllm_cot_rl import (
-    MultimodalGRPOConfig,
     DATASET_CLSMAP,
     print_once,
     set_random_seed,
