@@ -196,10 +196,6 @@ class MultimodalDistributedGRPO:
 
         # self.prompt_continue()
         
-        # Prepare model with accelerator
-        if self.config.use_vllm_for_generation:
-            self.init_vllm()
-
         if self.is_training_process:
             self.model = self.model.to(self.accelerator.device)
             self.model.language_encoder.config.use_cache = False  # we don't generate, so we don't need cache in training
@@ -215,7 +211,7 @@ class MultimodalDistributedGRPO:
             self.update_ref_model()
 
         else:
-            if not (self.config.use_vllm_for_generation or self.config.use_sglang_for_generation):
+            if not self.config.use_sglang_for_generation:
                 # Use DDP-based inference
                 self.model = self.model.to(self.accelerator.device)
                 self.model.language_encoder.config.use_cache = True  # we need cache in inference
@@ -451,9 +447,9 @@ class MultimodalDistributedGRPO:
             }
 
         # save LoRA first 
-        if self.config.use_lora and (self.config.use_vllm_for_generation or self.config.use_sglang_for_generation):
+        if self.config.use_lora and self.config.use_sglang_for_generation:
             if self.is_main_process:
-                self.initial_copy_lora_for_vllm()
+                self.initial_copy_lora_for_sglang()
             
             self.accelerator.wait_for_everyone()
         
@@ -656,106 +652,100 @@ class MultimodalDistributedGRPO:
         local_object_masks = repeated_object_masks[start_idx:end_idx]
         
         
-        if self.config.use_vllm_for_generation:
-            # Generate completions with vLLM
-            inputs_embeds, inputs_mask = self.generate_completions_vllm(
-                local_prompts, local_object_features, local_object_masks, max_completion_length
-            )
-        else:
-            # prompt_length = prompt_ids.size(1)
-            all_completion_ids = []
-            all_inputs_embeds = []
-            all_inputs_mask = []
+        # prompt_length = prompt_ids.size(1)
+        all_completion_ids = []
+        all_inputs_embeds = []
+        all_inputs_mask = []
+
+        # Prepare object features for the model
+        object_set_embeds = []
+        for features, mask in zip(local_object_features, local_object_masks):
+            valid_features = features[mask]
+            object_set_embeds.append([valid_features])
+
+        # Use micro-batching to reduce memory usage
+        for i in range(0, len(local_prompts), self.config.generation_micro_batch_size):
+            batch_end = min(i + self.config.generation_micro_batch_size, len(local_prompts))
             
-            # Prepare object features for the model
-            object_set_embeds = []
-            for features, mask in zip(local_object_features, local_object_masks):
-                valid_features = features[mask]
-                object_set_embeds.append([valid_features])
-            
-            # Use micro-batching to reduce memory usage
-            for i in range(0, len(local_prompts), self.config.generation_micro_batch_size):
-                batch_end = min(i + self.config.generation_micro_batch_size, len(local_prompts))
-                
-                batch_prompts = local_prompts[i:batch_end]
-                # batch_prompt_ids = prompt_ids[i:batch_end]
-                # batch_prompt_mask = prompt_mask[i:batch_end]
-                batch_object_embeds = object_set_embeds[i:batch_end]
+            batch_prompts = local_prompts[i:batch_end]
+            # batch_prompt_ids = prompt_ids[i:batch_end]
+            # batch_prompt_mask = prompt_mask[i:batch_end]
+            batch_object_embeds = object_set_embeds[i:batch_end]
 
-                # Generate completions
-                with torch.no_grad():
-                    outputs = self.unwrapped_model.generate(
-                        instructions=batch_prompts,
-                        object_set_embeds=batch_object_embeds,
-                        max_length=max_completion_length,
-                        do_sample=True,
-                        temperature=self.config.temperature,
-                        top_p=1.0,
-                        top_k=-1, # 200?
-                        return_dict=True,
-                        return_logprob=True,
-                    )
+            # Generate completions
+            with torch.no_grad():
+                outputs = self.unwrapped_model.generate(
+                    instructions=batch_prompts,
+                    object_set_embeds=batch_object_embeds,
+                    max_length=max_completion_length,
+                    do_sample=True,
+                    temperature=self.config.temperature,
+                    top_p=1.0,
+                    top_k=-1, # 200?
+                    return_dict=True,
+                    return_logprob=True,
+                )
 
-                    # calculate sequence level logprobs if available
-                    token_logprobs_sgl = outputs.get("logprobs", [])  # 是一个 List[Tuple[logprob, token_id, decoded_text]] (结构随版本略有不同)
-                    seq_logprobs_sum = []
-                    seq_logprobs_mean = []
-                    if token_logprobs_sgl != []:
-                        for logprob_tuples in token_logprobs_sgl:
-                            logprobs = np.array([tup[0] for tup in logprob_tuples])  # 提取每个token的logprob
-                            seq_logprobs_sum.append(logprobs.sum().item())
-                            seq_logprobs_mean.append(logprobs.mean().item())
+                # calculate sequence level logprobs if available
+                token_logprobs_sgl = outputs.get("logprobs", [])  # 是一个 List[Tuple[logprob, token_id, decoded_text]] (结构随版本略有不同)
+                seq_logprobs_sum = []
+                seq_logprobs_mean = []
+                if token_logprobs_sgl != []:
+                    for logprob_tuples in token_logprobs_sgl:
+                        logprobs = np.array([tup[0] for tup in logprob_tuples])  # 提取每个token的logprob
+                        seq_logprobs_sum.append(logprobs.sum().item())
+                        seq_logprobs_mean.append(logprobs.mean().item())
 
-                        logger.debug(f"Rank {self.process_idx} - Generated sequence logprobs sum: {seq_logprobs_sum}")
-                        logger.debug(f"Rank {self.process_idx} - Generated sequence logprobs mean: {seq_logprobs_mean}")
+                    logger.debug(f"Rank {self.process_idx} - Generated sequence logprobs sum: {seq_logprobs_sum}")
+                    logger.debug(f"Rank {self.process_idx} - Generated sequence logprobs mean: {seq_logprobs_mean}")
 
 
-                    completion_ids = outputs["completion_ids"]
-                    inputs_embeds = outputs["inputs_embeds"]
-                    inputs_mask = outputs["attention_masks"]
+                completion_ids = outputs["completion_ids"]
+                inputs_embeds = outputs["inputs_embeds"]
+                inputs_mask = outputs["attention_masks"]
 
-                    if isinstance(completion_ids, list):
-                        logger.critical(f"Rank {self.process_idx} - completion_ids is a list, len: {[len(cid) for cid in completion_ids]}")
-                        # show if any exceeds max_completion_length
-                        for cid in completion_ids:
-                            if len(cid) > max_completion_length:
-                                logger.critical(f"Rank {self.process_idx} - completion_id length {len(cid)} exceeds max_completion_length {max_completion_length}")
-                                # show response
-                                response = self.tokenizer.decode(cid, skip_special_tokens=True)
-                                logger.critical(f"Rank {self.process_idx} - completion_id response: {response}")
-                        all_completion_ids.extend([torch.tensor(completion_id, dtype=torch.long, device=self.accelerator.device).unsqueeze(0) for completion_id in completion_ids])
-                    else:
-                        logger.critical(f"Rank {self.process_idx} - completion_ids is a tensor, shape: {completion_ids.shape}")
-                        all_completion_ids.append(completion_ids) # already a tensor
-                    all_inputs_embeds.append(inputs_embeds) # [B, L, D]
-                    all_inputs_mask.append(inputs_mask) # [B, L]
-            
-            # Pad right side of completion_ids
-            # logger.debug(f"{all_completion_ids=}")
-            completion_lens = [completion_id.size(-1) for completion_id in all_completion_ids]
-            max_completion_len = max([completion_id.size(-1) for completion_id in all_completion_ids])
-            logger.critical(f"Rank {self.process_idx} - Completion lengths: {completion_lens}, Max completion length: {max_completion_len}, max_new_tokens: {max_completion_length}")
+                if isinstance(completion_ids, list):
+                    logger.critical(f"Rank {self.process_idx} - completion_ids is a list, len: {[len(cid) for cid in completion_ids]}")
+                    # show if any exceeds max_completion_length
+                    for cid in completion_ids:
+                        if len(cid) > max_completion_length:
+                            logger.critical(f"Rank {self.process_idx} - completion_id length {len(cid)} exceeds max_completion_length {max_completion_length}")
+                            # show response
+                            response = self.tokenizer.decode(cid, skip_special_tokens=True)
+                            logger.critical(f"Rank {self.process_idx} - completion_id response: {response}")
+                    all_completion_ids.extend([torch.tensor(completion_id, dtype=torch.long, device=self.accelerator.device).unsqueeze(0) for completion_id in completion_ids])
+                else:
+                    logger.critical(f"Rank {self.process_idx} - completion_ids is a tensor, shape: {completion_ids.shape}")
+                    all_completion_ids.append(completion_ids) # already a tensor
+                all_inputs_embeds.append(inputs_embeds) # [B, L, D]
+                all_inputs_mask.append(inputs_mask) # [B, L]
 
-            completion_ids = [
-                F.pad(completion_id, (0, max_completion_len - completion_id.size(-1)), value=self.tokenizer.pad_token_id)
-                for completion_id in all_completion_ids
-            ]
-            completion_ids = torch.cat(completion_ids, dim=0)
-            logger.debug(f"{completion_ids.shape=}")
-            completion_mask = self.create_completion_mask(completion_ids, self.tokenizer.eos_token_id)
+        # Pad right side of completion_ids
+        # logger.debug(f"{all_completion_ids=}")
+        completion_lens = [completion_id.size(-1) for completion_id in all_completion_ids]
+        max_completion_len = max([completion_id.size(-1) for completion_id in all_completion_ids])
+        logger.critical(f"Rank {self.process_idx} - Completion lengths: {completion_lens}, Max completion length: {max_completion_len}, max_new_tokens: {max_completion_length}")
 
-            # Pad left side of inputs_embeds and inputs_mask
-            max_inputs_len = max([inputs_embed.size(1) for inputs_embed in all_inputs_embeds])
-            inputs_embeds = [
-                F.pad(inputs_embed, (0, 0, max_inputs_len - inputs_embed.size(1), 0), value=0)
-                for inputs_embed in all_inputs_embeds
-            ]
-            inputs_embeds = torch.cat(inputs_embeds, dim=0)
-            inputs_mask = [
-                F.pad(inputs_mask, (max_inputs_len - inputs_mask.size(1), 0), value=0)
-                for inputs_mask in all_inputs_mask
-            ]
-            inputs_mask = torch.cat(inputs_mask, dim=0)
+        completion_ids = [
+            F.pad(completion_id, (0, max_completion_len - completion_id.size(-1)), value=self.tokenizer.pad_token_id)
+            for completion_id in all_completion_ids
+        ]
+        completion_ids = torch.cat(completion_ids, dim=0)
+        logger.debug(f"{completion_ids.shape=}")
+        completion_mask = self.create_completion_mask(completion_ids, self.tokenizer.eos_token_id)
+
+        # Pad left side of inputs_embeds and inputs_mask
+        max_inputs_len = max([inputs_embed.size(1) for inputs_embed in all_inputs_embeds])
+        inputs_embeds = [
+            F.pad(inputs_embed, (0, 0, max_inputs_len - inputs_embed.size(1), 0), value=0)
+            for inputs_embed in all_inputs_embeds
+        ]
+        inputs_embeds = torch.cat(inputs_embeds, dim=0)
+        inputs_mask = [
+            F.pad(inputs_mask, (max_inputs_len - inputs_mask.size(1), 0), value=0)
+            for inputs_mask in all_inputs_mask
+        ]
+        inputs_mask = torch.cat(inputs_mask, dim=0)
 
         # tensorize seq_logprobs
         seq_logprobs_sum = torch.tensor(seq_logprobs_sum, dtype=torch.float32, device=self.accelerator.device)
@@ -764,40 +754,7 @@ class MultimodalDistributedGRPO:
         # return prompt_ids, prompt_mask, completion_ids, completion_mask
         return inputs_embeds, inputs_mask.long(), completion_ids.long(), completion_mask.long(), seq_logprobs_sum, seq_logprobs_mean
 
-    def init_vllm(self):
-        # Set env for vLLM
-        os.environ["VLLM_DP_MASTER_ADDR"] = "127.0.0.1"
-        os.environ["VLLM_DP_MASTER_PORT"] = str(get_open_port())
-        
-        # Make lora update path
-        logger.debug(f"Rank {self.process_idx} - Creating LoRA update path")
-        os.makedirs(self.config.lora_update_path, exist_ok=True)
-        
-        # Load model to vLLM
-        logger.debug(f"Rank {self.process_idx} - Loading model with vLLM")
-        self.vllm_model = LLM(
-            model=self.config.model_name, 
-            tensor_parallel_size=1,
-            swap_space=0,
-            cpu_offload_gb=0,
-            enable_prefix_caching=self.config.enable_prefix_caching,
-            gpu_memory_utilization=0.8,
-            max_model_len=1500,
-            enable_lora=self.is_inference_process,
-            enforce_eager=True,
-            device=f"cuda:{self.process_idx}",
-            enable_sleep_mode=True,
-            max_lora_rank=128,
-        )
-        
-        logger.debug(f"Rank {self.process_idx} - vLLM initialized")
-        
-        # Destroy vLLM on training processes
-        if self.is_training_process:
-            self.vllm_model.sleep(2)
-            logger.debug(f"Rank {self.process_idx} - vLLM destroyed/put to sleep")
-
-    def initial_copy_lora_for_vllm(self):
+    def initial_copy_lora_for_sglang(self):
         # copy load_checkpoint to lora_update_path
         if self.config.load_checkpoint:
             logger.debug(f"Rank {self.process_idx} - Copying LoRA checkpoint to update path")
@@ -811,9 +768,9 @@ class MultimodalDistributedGRPO:
             self.lm.save_pretrained(self.config.lora_update_path)
             
 
-    def update_lora_for_vllm(self, model: Optional[MultimodalLanguageModelDecoderOnly]=None):
-        """Update LoRA for vLLM/SGLang to be reloaded from disk"""
-        logger.debug(f"Rank {self.process_idx} - Updating LoRA for vLLM/SGLang")
+    def update_lora_for_sglang(self, model: Optional[MultimodalLanguageModelDecoderOnly]=None):
+        """Update LoRA for SGLang to be reloaded from disk"""
+        logger.debug(f"Rank {self.process_idx} - Updating LoRA for SGLang")
         
         unwrapped_model = model if model else self.unwrapped_model
         unwrapped_model.language_encoder.save_pretrained(self.config.lora_update_path)
@@ -821,38 +778,6 @@ class MultimodalDistributedGRPO:
         # List all files in the update path
         files = os.listdir(self.config.lora_update_path)
         logger.debug(f"Rank {self.process_idx} - Files in update path: {files}")
-
-    def generate_completions_vllm(self, prompts, object_features, object_masks, max_completion_length):
-        logger.debug(f"Rank {self.process_idx} - Generating completions with vLLM")
-        # This is a placeholder - vLLM doesn't natively support multimodal inputs
-        # You would need to adapt vLLM to handle object features or use a different approach
-        
-        # For now, we'll just use a dummy implementation
-        vllm_sampling_params = SamplingParams(
-            temperature=self.config.temperature,
-            max_tokens=max_completion_length,
-            detokenize=False,
-        )
-        
-        # Generate completions
-        with torch.no_grad():
-            # This would need to be modified to incorporate object features
-            outputs = self.vllm_model.generate(
-                prompts,
-                sampling_params=vllm_sampling_params,
-                lora_request=LoRARequest("grpo", 1, self.config.lora_update_path),
-            )
-            max_completion_len = max([len(output.outputs[0].token_ids) for output in outputs])
-            
-            completion_ids = torch.zeros((len(outputs), max_completion_len), dtype=torch.long, device=self.accelerator.device)
-            completion_mask = torch.zeros((len(outputs), max_completion_len), dtype=torch.long, device=self.accelerator.device)
-            
-            for i, output in enumerate(outputs):
-                completion_ids[i, :len(output.outputs[0].token_ids)] = torch.tensor(output.outputs[0].token_ids).to(self.accelerator.device)
-                completion_mask[i, :len(output.outputs[0].token_ids)] = 1
-                
-        logger.debug(f"Rank {self.process_idx} - Rollout completions with vLLM generated")
-        return completion_ids, completion_mask
 
     def selective_log_softmax(self, logits, input_ids):
         """
@@ -1773,10 +1698,10 @@ class MultimodalDistributedGRPO:
                 # --- Model Synchronization ---
                 if update_counter % self.config.update_iters == 0:
                     logger.debug(f"Rank {self.process_idx} - Synchronizing model weights")
-                    if self.config.use_vllm_for_generation or self.config.use_sglang_for_generation:
-                        # Push the model to vLLM from training processes
+                    if self.config.use_sglang_for_generation:
+                        # Push the model to SGLang from training processes
                         if self.is_main_training_process:
-                            self.update_lora_for_vllm()
+                            self.update_lora_for_sglang()
 
                         self.accelerator.wait_for_everyone()
                         if self.config.use_sglang_for_generation and self.is_inference_process:

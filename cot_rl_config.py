@@ -39,13 +39,9 @@ class MultimodalGRPOConfig:
     n_views_in_m_views: str = "32_8"
     image_feature_type: str = "global" # global, patch, adaptive_12x12
     
-    # vLLM settings
-    use_vllm_for_generation: bool = False
-    lora_update_path: str = "/dev/shm/apeiria-lora-update"
-    enable_prefix_caching: bool = False
-
     # SGLang settings
     use_sglang_for_generation: bool = False
+    lora_update_path: str = "/dev/shm/apeiria-lora-update"
     
     # LoRA settings
     use_lora: bool = True

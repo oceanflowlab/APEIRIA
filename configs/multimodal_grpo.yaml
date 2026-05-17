@@ -62,13 +62,9 @@ image_encoder: "" # no extra image encoder
 n_views_in_m_views: "32_8"
 image_feature_type: global # global, patch, adaptive_12x12
 
-# vLLM settings
-use_vllm_for_generation: false
-lora_update_path: /dev/shm/apeiria-lora-update
-enable_prefix_caching: false
-
 # SGLang settings
 use_sglang_for_generation: true
+lora_update_path: /dev/shm/apeiria-lora-update
 
 # LoRA settings
 use_lora: true
