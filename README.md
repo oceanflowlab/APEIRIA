@@ -85,8 +85,9 @@ APEIRIA uses SGLang for feature-input MLLM generation during RL rollout and acce
 ```bash
 sglang_0.5.5.post3.patch
 ```
-
-If you reproduce the exact environment, install `sglang==0.5.5.post3` and apply the patch to the matching SGLang source tree. Newer SGLang versions may already contain an equivalent fix through a different implementation path; prefer upstream SGLang when it works with APEIRIA's feature-input generation.
+Without this patch, SGLang will raise [issue](https://github.com/sgl-project/sglang/issues/14109) when retracting decoding requests that would exceed reserved KV memory.
+If you reproduce the exact environment, install `sglang==0.5.5.post3` and apply the patch to the matching SGLang source tree. 
+Newer SGLang versions should have already contain an equivalent fix through a different implementation path; prefer upstream SGLang when it works with APEIRIA's feature-input generation.
 
 ### 2. Data Setup
 
