@@ -39,6 +39,7 @@ The repository is organized around the core APEIRIA training, inference, reward,
 | `generate_scene_json_from_bbox_list.py`, `batch_generate_scene_json.py` | ScanNet bbox-to-scene-JSON preprocessing. |
 | `configs/` | Hydra configs for SFT, inference, and GRPO. |
 | `train_mllm.sh`, `train_grpo_mllm.sh` | Convenience launch scripts. |
+| `requirements-reference.txt` | Curated exact package versions observed in the `sgl055` development environment, provided as reference only. |
 | `sglang_0.5.5.post3.patch` | Reference patch for the SGLang version used in the original experiments. |
 | `libs/capeval/` | Caption-evaluation utilities used by the dataset and evaluation code. |
 | `data/` | Task annotations and scene metadata. Configure external dataset paths as described below. |
@@ -50,6 +51,8 @@ This section walks through the environment and data setup needed to run APEIRIA.
 ### 1. Environment Setup
 
 Configure the environment with the following commands, adjusting the PyTorch, FlashAttention, and SGLang installation for your platform as needed. SGLang is necessary for RL training and accelerated rollout generation. The recommended installation order is: create the environment, install `uv`, install PyTorch following the official PyTorch selector, install SGLang following the official SGLang guide, then install any remaining libraries.
+
+`requirements-reference.txt` records exact versions for APEIRIA-relevant packages observed in the `sgl055` development environment. It is provided for reference and debugging only; these exact versions are not required for all users or platforms. Prefer the official installation commands for platform-sensitive packages.
 
 ```bash
 conda create -n sgl055 python=3.10
@@ -77,6 +80,8 @@ uv pip install numpy scipy pandas scikit-learn tqdm h5py pillow filelock nltk
 uv pip install lark lark-cython pretty-errors transforms3d sparsemax
 uv pip install open-clip-torch tensordict packaging requests psutil nest-asyncio
 ```
+
+For exact package versions observed in the development environment, see `requirements-reference.txt`. Use that file only when you intentionally want to inspect or mirror the reference environment.
 
 #### SGLang Patch
 
@@ -229,11 +234,11 @@ Supported dataset names are defined in `DATASET_CLSMAP` inside `train_apeiria_ml
 ## Release TODO
 
 - [ ] Upload the final public checkpoints and keep the Hugging Face model card synchronized with the training and inference configs.
-- [ ] Remove unused legacy code paths and simplify modules that still contain experiment-only utilities.
-- [ ] Add a pinned environment file for the tested CUDA, PyTorch, Transformers, PEFT, and SGLang stack.
-- [ ] Add dataset preparation notes for each supported benchmark and clarify which files must be provided by users.
-- [ ] Add reproduction scripts for the main paper tables after the final checkpoint and data paths are public.
-- [ ] Add the final repository license and any third-party attribution notes required by bundled evaluation utilities.
+- [x] Remove unused legacy code paths and simplify modules that still contain experiment-only utilities.
+- [x] Add an exact-version reference dependency file for the development environment.
+- [ ] Run cleaned code to test checkpoint inference.
+- [ ] Add modular enhancement instruction.
+- [x] Add the final repository license and any third-party attribution notes required by bundled evaluation utilities.
 
 ## Citation
 

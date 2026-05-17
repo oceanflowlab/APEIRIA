@@ -1,0 +1,62 @@
+# Reference dependency versions for APEIRIA.
+#
+# This file records exact versions for APEIRIA-relevant packages observed in
+# the sgl055 development environment. It is curated rather than a full pip
+# freeze. It is provided as a reference for debugging and reproducibility
+# notes, not as a strict requirement for all users or platforms.
+#
+# Python: 3.12.0
+
+# Core training and model stack
+transformers==4.57.1
+accelerate==1.11.0
+peft==0.17.1
+datasets==4.4.1
+hydra-core==1.3.2
+omegaconf==2.3.0
+wandb==0.23.0
+safetensors==0.7.0rc0
+sentencepiece==0.2.1
+
+# Platform-sensitive packages
+torch==2.8.0+cu126
+torchvision==0.23.0+cu126
+torchaudio==2.8.0+cu126
+sglang==0.5.5.post1
+flash_attn==2.8.3
+flashinfer-python==0.5.0
+flashinfer-cubin==0.5.0
+sgl-kernel==0.3.17
+torch_memory_saver==0.0.9
+torchao==0.9.0
+
+# Numeric, data, and utility packages
+numpy==2.3.3
+scipy==1.16.3
+pandas==2.3.3
+scikit-learn==1.7.2
+tqdm==4.67.1
+h5py==3.15.1
+pillow==11.3.0
+filelock==3.19.1
+nltk==3.9.2
+pyarrow==22.0.0
+einops==0.8.1
+packaging==25.0
+psutil==5.9.8
+nest-asyncio==1.6.0
+icecream==2.1.8
+pretty-errors==1.2.25
+
+# 3D / geometry / parsing utilities
+lark==1.3.1
+lark-cython==0.0.17
+transforms3d==0.4.2
+plyfile==1.1.3
+
+# Feature and optional acceleration utilities
+open_clip_torch==3.2.0
+tensordict==0.10.0
+sparsemax==0.1.9
+liger_kernel==0.6.4
+ninja==1.13.0
