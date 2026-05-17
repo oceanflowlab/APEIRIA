@@ -1,0 +1,197 @@
+defaults:
+  - _self_
+
+hydra:
+  run:
+    # Hydra automatically creates output directories based on config & date
+    # Set to ${output_dir} if you want to use the manually defined one.
+    # Otherwise, Hydra manages it. Let's stick to Hydra's way for now.
+    # dir: ../apeiria-output/${wandb_run_name} # Use variable substitution
+    dir: ../apeiria-output/${now:%Y-%m-%d}/${now:%H-%M-%S} # Example Hydra output path
+  sweep:
+    dir: ../apeiria-multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job_logging:
+    root:
+      level: INFO
+  hydra_logging:
+    root:
+      level: INFO
+  # Disable Hydra's automatic class instantiation helpers if not needed
+  # instantiate_objects: False
+
+# --- Our Flat Configuration ---
+# Use defaults from the schema, override specific values here if needed
+
+# --- Logging Configuration ---
+log_format: "[%(asctime)s %(name)s %(levelname)s %(funcName)s] %(message)s"
+log_datefmt: "%I:%M:%S"
+log_level_main: "INFO"    # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_level_other: "WARNING" # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+transformers_verbosity_main: "info" # Options: debug, info, warning, error, passive
+transformers_verbosity_other: "warning" # Options: debug, info, warning, error, passive
+
+
+# --- Model parameters ---
+# model_name: "../Qwen2.5-3B-Instruct" 
+model_name: "../Qwen3-VL-4B-Instruct" 
+attn_implementation: "flash_attention_2"
+max_objects: 130
+no_object_in_language_model: false 
+sync_bn: false 
+checkpoint_path: "" 
+only_load_adapter: false 
+object_embedding_type: "discrete_location_separate" 
+use_clip_class_embedding: false
+clip_model_name: "ViT-H-14-378-quickgelu|dfn5b"
+use_proposal_feature: true
+proposal_type: uni3d-mask3d-gt
+normalize_proposal_feature: true
+use_2d_proposal_feature: true
+separate_location_embedding: true
+discrete_location_bins: 201
+discrete_location_decay_kernel: "gaussian" 
+discrete_location_decay_kernel_size: 1 
+discrete_location_bin_range: null # Will be calculated based on room_sizeq
+
+# image_encoder: ""
+image_encoder: "ViT-gopt-16-SigLIP2-384|webli" # 1536d 
+n_views_in_m_views: "32_8"
+image_feature_type: global # global, patch, adaptive_12x12
+
+# --- LoRA parameters ---
+lora_rank: 128
+lora_alpha: 256
+lora_dropout: 0.1 
+use_pissa: false 
+unfreeze_word_embedding: false 
+lora_word_embedding: false 
+use_rslora: false 
+
+# --- Dataset parameters ---
+load_from_cache: false
+ratio: 1.0
+dataset_type: "[sr3d, sr3d_filter, sr3d_object_info]" 
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["sr3d_filter", "sr3d_object_info"]
+#   - epoch: 2
+# #     datasets: ["sr3d_filter", "sr3d_object_info", "sr3d"]
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["sr3d_object_info"]
+#   - epoch: 3
+#     datasets: ["sr3d_object_info", "scannet_attributes"]
+#   - epoch: 4
+#     datasets: ["sr3d_object_info", "scannet_attributes", "sr3d_filter", "sr3d_filter_attribute"]
+#   - epoch: 6
+#     datasets: ["sr3d_object_info", "scannet_attributes", "sr3d_filter", "sr3d_filter_attribute", "scanrefer_nocot", "nr3d_nocot", "multi3drefer_nocot", "sr3d", "scanrefer_dense", "nr3d_dense", "sr3d_dense", "sqa3d", "scanqa", "msqa", "scene-r1"] # msqa is too large now
+#   # - epoch: 6
+#   #   datasets: ["sr3d_filter_attribute"] # debug multi3drefer
+#   - epoch: 7
+#     datasets: ["scanrefer_caption_cot", "nr3d_caption_cot"]
+
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["scanrefer_caption_cot", "nr3d_caption_cot"]
+
+curriculum_stages:
+  - epoch: 0
+    datasets: ["scanrefer_nocot", "nr3d_nocot", "multi3drefer_nocot", "sr3d_nocot"]
+
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["sr3d_object_info", "scannet_attributes", "sr3d_filter", "scanrefer_nocot", "nr3d_nocot", "sr3d", "scene-r1", "scanrefer_dense", "nr3d_dense", "sr3d_dense", "sqa3d", "scanqa", "msqa"]
+
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["sr3d_object_info"]
+#   - epoch: 2
+#     datasets: ["sr3d_object_info", "sr3d_filter"]
+#   - epoch: 4
+#     datasets: ["sr3d_object_info", "sr3d_filter", "sr3d"] # "scanrefer_dense", "nr3d_dense", "sr3d_dense", "sqa3d", "scanqa", "msqa"]
+
+# curriculum_stages:
+#   - epoch: 0
+#     datasets: ["sr3d_filter", "sr3d_object_info", "sr3d", "scene-r1"]
+
+enable_curriculum: true
+no_object_id_input: true
+add_thinking_trace: true
+add_full_thinking_trace_for_relational: false
+add_full_thinking_trace_for_filter_in_relational: true
+only_add_positive_relations: true
+add_plans_first: true
+add_partial_full_thinking_trace_for_relational: true
+add_partial_full_thinking_trace_for_filter: true
+relational_data_ratio: 0.2
+num_scenes: 1000
+objects_per_scene: 15
+room_size: 10.0
+min_objects_per_class: 1
+max_objects_per_class: 3
+shuffle_objects: true
+fix_template: false
+adjust_scene_layouts: false
+pre_filter_objects: false
+max_filter_objects: 30
+
+caption_sources: ["scanrefer", "nr3d"] 
+  # 4 datasets => max 20000 tokens in CoT
+  # nr3d+scanrefer => max 6300 tokens in CoT
+max_captions_per_object_in_cot: 10
+max_caption_cot_len: 6000 # x0.7 to tokenizer's token count
+
+# --- Training parameters ---
+batch_size: 1
+eval_batch_size: 8
+epochs: 15
+lr: 3e-5 
+lr_non_lm: 1e-3 
+weight_decay: 1e-3
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0 
+warmup_ratio: 0.01
+seed: 42 
+lr_scheduler_type: "cosine"
+gradient_checkpointing: true
+optimizer: "adamw" 
+# optimizer: "galore"
+galore_rank: 128
+loss_type: "sft"
+coeff_grounding_loss: 1.0
+add_bracket_in_object_detail: true
+
+# --- Generation parameters ---
+max_new_tokens: 2000
+num_beams: 1
+do_sample: false # => use greedy decoding
+top_k: 50 
+top_p: 0.95 
+temperature: 0.0
+eval_use_sglang: true
+sglang_log_level: warning
+temp_lora_path_eval: "/dev/shm/apeiria-temp-eval-lora"
+
+# --- Output and logging ---
+# output_dir: "" # Will use hydra default based on wandb_run_name unless overridden
+logging_steps: 2 
+eval_steps: 50000 
+save_steps: 50000 
+wandb_project: "apeiria-3d-synthetic" 
+# wandb_run_name: null
+no_save: true
+eval_logging_frequency: 20 
+iou_threshold: 0.25 
+
+# resume_from_checkpoint: "../apeiria-output/2025-07-04/16-36-12/checkpoint-epoch4"
+# resume_from_checkpoint: "../apeiria-output/2025-10-28/20-06-27/checkpoint-epoch3/"
+# resume_from_checkpoint: "../apeiria-output/2025-10-29/21-52-28/checkpoint-epoch4/"
+# resume_from_checkpoint: "../apeiria-output/2025-11-02/11-05-44/checkpoint-epoch3/"
+# resume_from_checkpoint: "/network_space/server127_2/shared/mwt/apeiria-ckpt-2/14-15-18/checkpoint-epoch6/" # 8B best
+resume_from_checkpoint: "/network_space/server128/mwt/apeiria-ckpts/4Bvl-checkpoint-epoch7/" # 4B best
+resume_from_checkpoint_epoch: False # start over lr schedule
+
+# --- Other optimization parameters ---
+compile_model: false
+

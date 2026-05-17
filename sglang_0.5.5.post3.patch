@@ -1,0 +1,383 @@
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/entrypoints/engine.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/entrypoints/engine.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/entrypoints/engine.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/entrypoints/engine.py	2025-11-26 16:27:16.562001039 +0800
+@@ -163,6 +163,7 @@
+         sampling_params: Optional[Union[List[Dict], Dict]] = None,
+         # The token ids for text; one can either specify text or input_ids.
+         input_ids: Optional[Union[List[List[int]], List[int]]] = None,
++        input_embeds: Optional[Union[List[List[List[float]]], List[List[float]]]] = None,
+         # The image input. It can be an image instance, file name, URL, or base64 encoded string.
+         # Can be formatted as:
+         # - Single image for a single request
+@@ -203,6 +204,7 @@
+         obj = GenerateReqInput(
+             text=prompt,
+             input_ids=input_ids,
++            input_embeds=input_embeds,
+             sampling_params=sampling_params,
+             image_data=image_data,
+             audio_data=audio_data,
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/detokenizer_manager.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/detokenizer_manager.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/detokenizer_manager.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/detokenizer_manager.py	2025-12-08 20:10:58.667099096 +0800
+@@ -153,8 +153,40 @@
+ 
+         # Initialize decode status
+         read_ids, surr_ids = [], []
++        
++        flush_states = recv_obj.flush_states
++        if flush_states is None:
++            flush_states = [False] * bs
++
++        # 2. 准备传给下游的 flush 信号 (默认是 False，除非上游要求 flush)
++        # 注意：这里我们直接透传 flush_states
++        out_flush_states = flush_states
++
+         for i in range(bs):
+             rid = recv_obj.rids[i]
++
++            # [核心逻辑] 如果标记为 True，直接删除旧状态
++            if flush_states[i]:
++                if rid in self.decode_status:
++                    logger.critical(
++                        f"Flushing decode status for request {rid} as requested."
++                        f"Current decoded_ids length: {len(self.decode_status[rid].decode_ids)}"
++                    )
++                    print(
++                        f"Flushing decode status for request {rid} as requested."
++                        f"Current decoded_ids length: {len(self.decode_status[rid].decode_ids)}",
++                        flush=True,
++                    )
++                    del self.decode_status[rid]
++                else:
++                    logger.critical(
++                        f"Flush requested for request {rid}, but no existing decode status found."
++                    )
++                    print(
++                        f"Flush requested for request {rid}, but no existing decode status found.",
++                        flush=True,
++                    )
++
+             if rid not in self.decode_status:
+                 s = DecodeStatus(
+                     decoded_text=recv_obj.decoded_texts[i],
+@@ -280,6 +312,7 @@
+             forward_entry_time=recv_obj.forward_entry_time,
+             prefill_launch_delay=recv_obj.prefill_launch_delay,
+             prefill_launch_latency=recv_obj.prefill_launch_latency,
++            flush_states=out_flush_states,
+         )
+ 
+     def handle_multimodal_decode_req(self, recv_obj: BatchMultimodalDecodeReq):
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/io_struct.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/io_struct.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/io_struct.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/io_struct.py	2025-12-08 17:25:57.078003668 +0800
+@@ -918,6 +918,7 @@
+ 
+     # Number of times each request was retracted.
+     retraction_counts: List[int]
++    flush_states: List[bool] = None
+ 
+     # The trainer step id. Used to know which step's weights are used for sampling.
+     token_steps: List[List[int]] = None
+@@ -997,6 +998,7 @@
+ 
+     # Number of times each request was retracted.
+     retraction_counts: List[int]
++    flush_states: List[bool] = None
+ 
+     # The trainer step id. Used to know which step's weights are used for sampling.
+     token_steps: List[List[int]] = None
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/mm_utils.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/mm_utils.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/mm_utils.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/mm_utils.py	2025-11-26 16:31:27.647072617 +0800
+@@ -635,6 +635,7 @@
+     input_ids: torch.Tensor,
+     forward_batch: ForwardBatch,
+     language_model: nn.Module,
++    input_embeds: Optional[torch.Tensor] = None,
+     multimodal_model: Optional[nn.Module] = None,
+     data_embedding_funcs: Dict[
+         Modality, Callable[[List[MultimodalDataItem]], torch.Tensor]
+@@ -660,7 +661,9 @@
+     """
+     assert hasattr(language_model, "get_input_embeddings")
+     embed_tokens = language_model.get_input_embeddings()
+-    if not hasattr(language_model, "pp_group") or language_model.pp_group.is_first_rank:
++    if input_embeds is not None:
++        inputs_embeds = input_embeds
++    elif not hasattr(language_model, "pp_group") or language_model.pp_group.is_first_rank:
+         if (
+             not forward_batch.forward_mode.is_decode()
+             and not forward_batch.forward_mode.is_target_verify()
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/schedule_batch.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/schedule_batch.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/schedule_batch.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/schedule_batch.py	2025-12-08 17:06:21.459524082 +0800
+@@ -572,6 +572,7 @@
+ 
+         # For retraction
+         self.is_retracted = False
++        self.flush_output = False
+ 
+         # Incremental streamining
+         self.send_token_offset: int = 0
+@@ -959,6 +960,22 @@
+         self.kv_committed_freed = False
+         self.kv_overallocated_freed = False
+ 
++        # [FIX START]
++        # 如果提供了 input_embeds，我们无法在 re-prefill 阶段混合使用 "原始 input_embeds" 
++        # 和 "新生成的 output_ids"。因为 input_embeds 通常会覆盖整个序列的 embedding 查找。
++        # 为了避免长度不匹配 (Shape Mismatch)，我们必须丢弃已生成的 token，让请求从头开始。
++        if self.input_embeds is not None:
++            self.output_ids = []
++            self.read_offset = None
++            self.surr_offset = None
++            self.decoded_text = ""
++            self.send_token_offset = 0
++            self.send_decode_id_offset = 0
++            
++            # [新增] 标记下一次发送时通知前端清空
++            self.flush_output = True
++        # [FIX END]
++
+     def offload_kv_cache(self, req_to_token_pool, token_to_kv_pool_allocator):
+         token_indices = req_to_token_pool.req_to_token[
+             self.req_pool_idx, : self.seqlen - 1
+@@ -1298,6 +1315,8 @@
+         extend_input_logprob_token_ids = []
+         multimodal_inputs = []
+ 
++        # is_rebuild_after_retract = hasattr(self, 'input_embeds_full') and self.input_embeds_full is not None
++
+         for i, (req, seq_len, pre_len) in enumerate(zip(reqs, seq_lens, prefix_lens)):
+             req.req_pool_idx = req_pool_indices[i]
+             assert seq_len - pre_len == req.extend_input_len
+@@ -1308,6 +1327,7 @@
+ 
+             # If input_embeds are available, store them
+             if req.input_embeds is not None:
++            # if req.input_embeds is not None and not is_rebuild_after_retract:
+                 # If req.input_embeds is already a list, append its content directly
+                 input_embeds.extend(req.input_embeds)  # Use extend to avoid nesting
+ 
+@@ -1399,11 +1419,22 @@
+         self.req_pool_indices = req_pool_indices_tensor
+         self.orig_seq_lens = orig_seq_lens_tensor
+         self.out_cache_loc = out_cache_loc
++
++        # self.input_embeds = (
++        #     torch.tensor(input_embeds).to(self.device, non_blocking=True)
++        #     if input_embeds
++        #     else None
++        # )
++        # if is_rebuild_after_retract and hasattr(self, 'input_embeds_full'):
++        #     # Use the existing full embeddings, don't rebuild
++        #     pass
++        # else:
+         self.input_embeds = (
+             torch.tensor(input_embeds).to(self.device, non_blocking=True)
+             if input_embeds
+             else None
+         )
++
+         for mm_input in multimodal_inputs:
+             if mm_input is None:
+                 continue
+@@ -1730,6 +1761,40 @@
+         self.out_cache_loc = None
+         self.seq_lens_sum = self.seq_lens.sum().item()
+         self.output_ids = self.output_ids[keep_indices_device]
++
++        # # Filter input_embeds for retracted requests (token-level filtering)
++        # if self.input_embeds is not None and self.extend_lens is not None: # and self.forward_mode==ForwardMode.EXTEND:
++        #     # Save original input_embeds on first filtering
++        #     if not hasattr(self, 'input_embeds_full') or self.input_embeds_full is None:
++        #         logger.critical("Cloning input_embeds to input_embeds_full for the first time")
++        #         self.input_embeds_full = self.input_embeds.clone()
++
++        #     # since input_embeds is inputted instead of input_ids,
++        #     # ALL tokens input are embedding, and input_ids shall just be empty
++        #     # that is sum(extend_lens) == input_embeds.size(0)
++        #     assert (
++        #         sum(self.extend_lens) == self.input_embeds_full.size(0)
++        #     ), f"Expected {sum(self.extend_lens)=} tokens, got {self.input_embeds_full.size(0)=}"
++
++        #     logger.critical(f"keep_indices: {keep_indices_device}, extend_lens: {self.extend_lens}, input_embeds_full size: {self.input_embeds_full.size()}, input_embeds size: {self.input_embeds.size()}")
++            
++        #     # Build token-level indices based on extend_lens and keep_indices
++        #     token_indices = []
++        #     token_offset = 0
++        #     for i, extend_len in enumerate(self.extend_lens):
++        #         if i in keep_indices:
++        #             token_indices.extend(range(token_offset, token_offset + extend_len))
++        #         token_offset += extend_len
++            
++        #     if len(token_indices) > 0:
++        #         token_indices_tensor = torch.tensor(token_indices, dtype=torch.int64).to(
++        #             self.device, non_blocking=True
++        #         ) 
++        #         self.input_embeds = self.input_embeds_full[token_indices_tensor]
++        #     else:
++        #         self.input_embeds = None
++        #         self.input_embeds_full = None  # Clean up when empty
++
+         self.return_logprob = any(req.return_logprob for req in self.reqs)
+         if self.return_logprob:
+             self.top_logprobs_nums = [self.top_logprobs_nums[i] for i in keep_indices]
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/scheduler_output_processor_mixin.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/scheduler_output_processor_mixin.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/scheduler_output_processor_mixin.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/scheduler_output_processor_mixin.py	2025-12-08 17:12:20.639352178 +0800
+@@ -727,6 +727,8 @@
+         prefill_launch_delays = []
+         prefill_launch_latencies = []
+ 
++        flush_states = []
++
+         if return_logprob:
+             input_token_logprobs_val = []
+             input_token_logprobs_idx = []
+@@ -835,6 +837,10 @@
+                     req.time_stats.get_prefill_launch_latency()
+                 )
+ 
++                flush_states.append(req.flush_output)
++                # 发送过一次后，就把标记复位，避免每次都清空
++                req.flush_output = False
++
+                 if not self.spec_algorithm.is_none():
+                     spec_verify_ct.append(req.spec_verify_ct)
+                     spec_accepted_tokens.append(req.spec_accepted_tokens)
+@@ -962,6 +968,7 @@
+                     placeholder_tokens_idx=None,
+                     placeholder_tokens_val=None,
+                     retraction_counts=retraction_counts,
++                    flush_states=flush_states,
+                 )
+             )
+ 
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/scheduler.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/scheduler.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py	2025-11-29 02:02:05.071065727 +0800
+@@ -1704,6 +1704,7 @@
+                     self.running_batch = self.last_batch
+                 else:
+                     # Merge running_batch with prefill batch
++                    # logger.critical(f"Calling merge_batch in scheduler.py")
+                     self.running_batch.merge_batch(self.last_batch)
+ 
+         new_batch = self.get_new_batch_prefill()
+@@ -1723,7 +1724,7 @@
+         else:
+             # Run decode
+             if not self.running_batch.is_empty():
+-                self.running_batch = self.update_running_batch(self.running_batch)
++                self.running_batch = self.update_running_batch(self.running_batch) # here, request retraction may happen
+                 ret = self.running_batch if not self.running_batch.is_empty() else None
+             else:
+                 ret = None
+@@ -1909,6 +1910,11 @@
+             )
+ 
+         new_batch.prepare_for_extend()
++        # def _get_shape(lst):
++        #     return () if not isinstance(lst, list) else (len(lst),) + (_get_shape(lst[0]) if lst else (0,))
++
++        # logger.critical(f"New prefill batch created with {len(new_batch.reqs)} requests."
++        #                 f" Input_embeds shapes: {[_get_shape(req.input_embeds) if req.input_embeds is not None else None for req in new_batch.reqs]}")
+ 
+         # Mixed-style chunked prefill
+         if (
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/managers/tokenizer_manager.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/tokenizer_manager.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/managers/tokenizer_manager.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/managers/tokenizer_manager.py	2025-12-08 18:22:03.360856479 +0800
+@@ -238,14 +238,18 @@
+             # We want to parallelize the image pre-processing so we create an executor for it
+             # We create mm_processor for any skip_tokenizer_init to make sure we still encode
+             # images even with skip_tokenizer_init=False.
+-            self.mm_processor = get_mm_processor(
+-                self.model_config.hf_config, server_args, _processor, transport_mode
+-            )
+-            self.mm_data_processor = AsyncMMDataProcessor(
+-                self.mm_processor,
+-                max_concurrent_calls=self.server_args.mm_max_concurrent_calls,
+-                timeout_s=self.server_args.mm_per_request_timeout,
+-            )
++            if server_args.skip_tokenizer_init:
++                self.mm_processor = None
++                self.mm_data_processor = None
++            else:
++                self.mm_processor = get_mm_processor(
++                    self.model_config.hf_config, server_args, _processor, transport_mode
++                )
++                self.mm_data_processor = AsyncMMDataProcessor(
++                    self.mm_processor,
++                    max_concurrent_calls=self.server_args.mm_max_concurrent_calls,
++                    timeout_s=self.server_args.mm_per_request_timeout,
++                )
+ 
+             if server_args.skip_tokenizer_init:
+                 self.tokenizer = self.processor = None
+@@ -1481,6 +1485,10 @@
+             BatchTokenIDOutput,
+         ],
+     ):
++        # [新增 1] 获取 flush 信号
++        # 兼容性处理：如果没有这个字段，默认为 None
++        flush_states = getattr(recv_obj, "flush_states", None)
++
+         for i, rid in enumerate(recv_obj.rids):
+             state = self.rid_to_state.get(rid, None)
+             if state is None:
+@@ -1489,6 +1497,32 @@
+                 )
+                 continue
+ 
++            # [新增 2] 执行状态重置
++            if flush_states and flush_states[i]:
++                logger.critical(
++                    f"Flushing state for request {rid} as per flush signal. "
++                    f"Previous text length: {len(state.text)}, output_ids length: {len(state.output_ids)}, "
++                    f"last_output_offset: {state.last_output_offset}, finished: {state.finished}."
++                    )
++                # 1. 重置基本文本和Token状态
++                state.text = ""
++                state.output_ids = []
++                state.last_output_offset = 0
++                
++                # 2. 重置所有 Logprob 缓存 (必须做，否则长度不对齐)
++                state.input_token_logprobs_val = []
++                state.input_token_logprobs_idx = []
++                state.output_token_logprobs_val = []
++                state.output_token_logprobs_idx = []
++                state.input_top_logprobs_val = []
++                state.input_top_logprobs_idx = []
++                state.output_top_logprobs_val = []
++                state.output_top_logprobs_idx = []
++                state.input_token_ids_logprobs_val = []
++                state.input_token_ids_logprobs_idx = []
++                state.output_token_ids_logprobs_val = []
++                state.output_token_ids_logprobs_idx = []
++
+             # Build meta_info and return value
+             meta_info = {
+                 "id": rid,
+diff --color -ruN '--exclude=*.pyc' '--exclude=__pycache__' '--exclude=*.so' '--exclude=*.pyd' /tmp/orig_pkg/sglang_orig/sglang/srt/models/qwen3_vl.py /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/models/qwen3_vl.py
+--- /tmp/orig_pkg/sglang_orig/sglang/srt/models/qwen3_vl.py	2025-11-17 01:55:46.000000000 +0800
++++ /home/vipuser/miniconda3/envs/sgl055/lib/python3.12/site-packages/sglang/srt/models/qwen3_vl.py	2025-11-26 16:29:25.006131086 +0800
+@@ -682,6 +682,7 @@
+         input_ids: torch.Tensor,
+         positions: torch.Tensor,
+         forward_batch: ForwardBatch,
++        input_embeds: Optional[torch.Tensor] = None,
+         get_embedding: bool = False,
+     ):
+         """Run forward pass for Qwen3-VL.
+@@ -711,6 +712,7 @@
+ 
+         hidden_states = general_mm_embed_routine(
+             input_ids=input_ids,
++            input_embeds=input_embeds,
+             forward_batch=forward_batch,
+             language_model=self.model,
+             multimodal_model=self,

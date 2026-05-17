@@ -1,0 +1,184 @@
+hydra:
+  job_logging:
+    root:
+      level: INFO
+  run:
+    # Hydra automatically creates output directories based on config & date
+    # Set to ${output_dir} if you want to use the manually defined one.
+    # Otherwise, Hydra manages it. Let's stick to Hydra's way for now.
+    # dir: ../apeiria-output/${wandb_run_name} # Use variable substitution
+    dir: ../apeiria-output/grpo/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ../apeiria-output/grpo/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  hydra_logging:
+    root:
+      level: INFO
+
+defaults:
+  - _self_  # 先加载当前文件的配置
+  # - load_1.5b_ckpt.yaml  # 然后加载这个文件来覆盖上面的配置
+
+# Model and data settings
+# model_name: ../Qwen2.5-3B-Instruct
+model_name: "../Qwen3-VL-8B-Instruct"
+output_dir: grpo_mllm
+compile_model: true
+compile_train_model: false
+attn_implementation: flash_attention_2
+
+# load_checkpoint: "../22-22-28/checkpoint-epoch1/" # only learn align and filter
+# load_checkpoint: "../22-22-28/checkpoint-epoch2/" # random guess on relate
+# load_checkpoint: "../22-22-28/checkpoint-epoch5/" # grokked on relate
+# load_checkpoint: "../apeiria-output/2025-04-12/23-39-30/checkpoint-epoch9"
+# load_checkpoint: "../apeiria-output/2025-04-12/23-39-30/checkpoint-epoch2"
+# load_checkpoint: "../checkpoint-epoch5/"
+# load_checkpoint: "../apeiria-output/dpo/2025-07-29/01-53-46/checkpoint-epoch-3/" # DPO-tuned for one iteration
+load_checkpoint: "../apeiria-ckpts/21-27-58/checkpoint-epoch-5/"
+
+# Multimodal model settings
+max_objects: 130
+no_object_in_language_model: false
+object_embedding_type: "discrete_location_separate" 
+use_clip_class_embedding: false
+clip_model_name: ViT-H-14-378-quickgelu|dfn5b
+separate_location_embedding: true
+discrete_location_bins: 201
+discrete_location_decay_kernel: gaussian
+discrete_location_decay_kernel_size: 1.0
+discrete_location_bin_range:
+  - 0.0
+  - 10.0
+use_proposal_feature: true
+proposal_type: uni3d-mask3d-gt
+use_2d_proposal_feature: true
+normalize_proposal_feature: true
+token_level_pg_loss: true
+
+# image_encoder: "ViT-gopt-16-SigLIP2-384|webli" # 1536d 
+image_encoder: "" # no extra image encoder
+n_views_in_m_views: "32_8"
+image_feature_type: global # global, patch, adaptive_12x12
+
+# vLLM settings
+use_vllm_for_generation: false
+lora_update_path: /dev/shm/apeiria-lora-update
+enable_prefix_caching: false
+
+# SGLang settings
+use_sglang_for_generation: true
+
+# LoRA settings
+use_lora: true
+lora_r: 128
+lora_alpha: 256
+lora_dropout: 0.1
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+# Process allocation
+num_inference_gpus: 4
+num_training_gpus: 4
+
+# Training hyperparameters
+num_iterations: 3
+num_steps: 500 # will be updated by real dataset size
+rollout_batch_size: 128
+num_generations: 8 # be compatible with 48 generation batch size: 32x15=480=48x10, no small additional batches
+generation_micro_batch_size: 256 # if use sglang, this can be infinite large - it will automatically split
+train_micro_batch_size: 4 # on all devices
+ref_model_micro_batch_size: 2 # device-wise
+max_completion_length: 3000 # for debug, set to 200
+max_length: 3500
+beta: 0.000 # coefficient for the KL penalty
+learning_rate: 3e-6 # 3e-6 for bs=8, therefore 3e-6 * 4 = 1.2e-5 for bs=32
+weight_decay: 1e-3
+max_grad_norm: 1.0
+warmup_steps: 0
+mu: 1 # update times per loss calculation
+epsilon: 0.1
+epsilon_min: 0.2 # GRPO lower clip
+epsilon_max: 0.28 # GRPO upper clip
+update_iters: 1 # we shall only expect mean reward increase after generation model updates
+temperature: 1.2 # temperature for the generation model
+normalize_advantages: false
+use_gradient_checkpointing: true
+optimizer_type: adamw
+
+# Length shaping
+L_min: 300
+L_min_cache: 450
+L_max: 3150
+L_max_cache: 3000
+
+# Entropy shaping
+# DS-GRPO suggests correct: 0.03, wrong: 0.01
+#  some other configs: correct: 0.02, wrong: 0.002
+#                      correct: 0.01, wrong: 0.01
+logp_factor_correct: 0.3
+logp_factor_wrong: 0.1
+logp_length_normalize: True
+logp_group_normalize: True
+logp_clip_ratio: 0.3
+
+# Dataset parameters
+ratio: 1
+load_from_cache: false
+# dataset_type: sr3d
+dataset_type: scanrefer
+num_scenes: 100
+objects_per_scene: 10
+room_size: 10.0
+min_objects_per_class: 1
+max_objects_per_class: 3
+shuffle_objects: true
+fix_template: false
+no_object_id_input: true
+# add_thinking_trace: true # but only the plans
+# add_plans_first: true
+add_thinking_trace: false # but only the plans
+add_plans_first: false
+add_thinking_trace_prompt: true # to indicate thinking trace is needed
+
+adjust_scene_layouts: false
+relational_data_ratio: 0.1
+pre_filter_objects: false
+max_filter_objects: 30
+# system_prompt: |
+#   Respond in the following format, potraying "Apeiria". In final answer, respond with "Apeiria found..." or "Apeiria didn't find any...", and a list of Object <ID>: At (..., ..., ...), size: ... x ... x ...:
+#   [APEIRIA THINKS]
+#   <... thinking procedure ...>
+#   [APEIRIA SPEAKS]
+#   Apeiria <... responses ..
+system_prompt: "You're Apeiria, a world-class AI, investigating objects in a room."
+
+# Offloading settings
+offload_reference_model: true
+offload_input_embeds: false
+
+# Misc
+seed: 42
+gradient_accumulation_steps: 1
+mixed_precision: bf16
+eval_size: 20
+report_interval: 25
+num_workers: 1
+save_iters: 50
+
+# Logging
+log_format: "[%(asctime)s %(name)s %(levelname)s %(funcName)s] %(message)s"
+log_datefmt: "%I:%M:%S"
+log_level_main: INFO
+log_level_other: WARNING
+transformers_verbosity_main: DEBUG
+transformers_verbosity_other: warning
+wandb_project: apeiria-3d-grpo
+# wandb_run_name: mllm-grpo-20250409-000000
+sglang_log_level: info
+

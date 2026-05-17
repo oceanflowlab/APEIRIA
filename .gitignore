@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Environments and local configuration
+.env
+.venv/
+venv/
+env/
+
+# Training and evaluation outputs
+wandb/
+outputs/
+results/
+apeiria-output/
+apeiria-logs/
+apeiria-multirun/
+multirun/
+*.log
+
+# Large model/data artifacts
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.h5
+*.hdf5
+*.pkl
+*.npy
+*.npz
+
+# System files
+.DS_Store

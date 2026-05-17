@@ -1,0 +1,19 @@
+[tool.ruff]
+
+[tool.ruff.lint]
+# 在这里添加你想要忽略的规则代码
+# 比如要忽略 F401 (unused import)
+ignore = ["F401", "F841"]
+
+# 如果你使用了 extend-select (比如 extend-select = ["ALL"])
+# 你可能需要用 extend-ignore 来添加忽略项
+# extend-ignore = ["F401"]
+
+[pip]
+index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+
+[tool.uv.pip]
+index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+
+[tool.uv]
+index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
