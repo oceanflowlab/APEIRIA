@@ -58,9 +58,6 @@ SGLANG_REQUIRED_VERSION = version.parse("0.5.0")
 try:
     import sglang as sgl
     SGLANG_VERSION = version.parse(sgl.__version__)
-    # from sglang.srt.conversation import chat_templates
-    # from sglang.test.test_utils import is_in_ci
-    # from sglang.utils import async_stream_and_merge, stream_and_merge
 except ImportError:
     import traceback
     traceback.print_exc()
