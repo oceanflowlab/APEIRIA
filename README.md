@@ -218,7 +218,7 @@ python generate_trace_rollouts_offline_multigpu.py \
 | APEIRIA (reported) | 58.4/51.2 | 59.2/53.8 |
 | APEIRIA (this code) | 58.1/51.1 | 59.5/54.1 |
 | APEIRIA w/ Modular Enhancement (reported) | 60.5/53.2 | 60.9/55.2 |
-| APEIRIA w/ Modular Enhancement (this code) | Row 2, Col 2 | Row 2, Col 3 |
+| APEIRIA w/ Modular Enhancement (this code) | 60.5/53.1 | 61.0/55.4 |
 
 ## Release TODO
 
